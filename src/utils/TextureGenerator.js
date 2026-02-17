@@ -1,5 +1,3 @@
-import * as THREE from "three";
-
 export class TextureGenerator {
   static createNoise(ctx, width, height, scale = 1, alpha = 1) {
     // Check if we have a context or need to create a dummy one for logic reuse
@@ -89,7 +87,6 @@ export class TextureGenerator {
     }
     for (let x = 0; x <= size; x += blockSize) {
       ctx.beginPath();
-      const offset = (Math.floor(x / blockSize) % 2) * (blockSize / 2);
       // Vertical lines staggered
       for (let y = 0; y < size; y += blockSize) {
         if (Math.random() > 0.1) {

@@ -33,9 +33,7 @@ export class ArachnidModel {
     // Deform head slightly
     const posAttribute = headGeo.attributes.position;
     for (let i = 0; i < posAttribute.count; i++) {
-      const x = posAttribute.getX(i);
       const y = posAttribute.getY(i);
-      const z = posAttribute.getZ(i);
       // Flatten
       posAttribute.setY(i, y * 0.6);
     }

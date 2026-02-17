@@ -107,9 +107,6 @@ export class Level {
     });
 
     // Neon/Hieroglyph
-    const neonTex = new THREE.CanvasTexture(
-      TextureGenerator.createHieroglyphTexture(),
-    );
     this.materials.hieroglyph = new THREE.MeshStandardMaterial({
       color: 0xffd700, // Gold tint
       emissive: 0xffaa00, // Golden/Orange glow
@@ -188,7 +185,6 @@ export class Level {
     addBlock(35, 0, 20, 30);
 
     // Decorative trim around the hole
-    const rimMat = this.materials.polishedSandstone;
     addBlock(0, -16, 30, 2); // N Rim
     addBlock(0, 16, 30, 2); // S Rim
     addBlock(-16, 0, 2, 30); // W Rim

@@ -104,7 +104,7 @@ export class HealthBar {
     // 1. Remove bars for enemies that are dead OR no longer in the list
     const activeEnemySet = new Set(enemies);
 
-    for (const [enemy, bar] of this.bars) {
+    for (const [enemy] of this.bars) {
       if (enemy.isDead || !activeEnemySet.has(enemy)) {
         this.remove(enemy);
       }
