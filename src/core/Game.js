@@ -32,6 +32,21 @@ const DEFAULT_BOSS_LASER = {
   width: 1.5,
   color: 0xff2a00,
 };
+const DEFAULT_BOSS_SPECIAL = {
+  type: "shockwave",
+  cooldown: 6.2,
+  windup: 0.75,
+  triggerRange: 28,
+  radius: 7.5,
+  damage: 24,
+  orbCount: 2,
+  spread: 0.2,
+  speed: 22,
+  zoneDelay: 0.8,
+  zoneRadius: 5.2,
+  zoneDamage: 28,
+  color: 0x66e8ff,
+};
 
 const WAVE_BOSS_PROFILES = [
   {
@@ -43,6 +58,7 @@ const WAVE_BOSS_PROFILES = [
     speedMultiplier: 0.92,
     damageMultiplier: 1.0,
     laser: { charge: 0.9, duration: 0.95, cooldown: 4.8, range: 31, damagePerSecond: 16, width: 1.35, color: 0x66e8ff },
+    special: { type: "shockwave", cooldown: 7.8, windup: 0.9, triggerRange: 20, radius: 10.2, damage: 22, color: 0x4fc9ff },
   },
   {
     name: "Void Reaper",
@@ -53,6 +69,7 @@ const WAVE_BOSS_PROFILES = [
     speedMultiplier: 1.03,
     damageMultiplier: 1.12,
     laser: { charge: 0.78, duration: 1.05, cooldown: 4.2, range: 35, damagePerSecond: 19, width: 1.42, color: 0x79e9ff },
+    special: { type: "orb_volley", cooldown: 6.4, windup: 0.55, triggerRange: 34, orbCount: 2, spread: 0.22, speed: 23, radius: 1.4, damage: 18, color: 0x9ef4ff },
   },
   {
     name: "Nightfang Executioner",
@@ -63,6 +80,7 @@ const WAVE_BOSS_PROFILES = [
     speedMultiplier: 1.08,
     damageMultiplier: 1.18,
     laser: { charge: 0.74, duration: 1.1, cooldown: 4.0, range: 34, damagePerSecond: 21, width: 1.45, color: 0x74d8ff },
+    special: { type: "zone_blast", cooldown: 6.9, windup: 0.6, triggerRange: 32, zoneDelay: 0.88, zoneRadius: 5.4, zoneDamage: 28, color: 0x86dcff },
   },
   {
     name: "Rift Judicator",
@@ -73,6 +91,7 @@ const WAVE_BOSS_PROFILES = [
     speedMultiplier: 1.14,
     damageMultiplier: 1.22,
     laser: { charge: 0.68, duration: 1.2, cooldown: 3.8, range: 36, damagePerSecond: 23, width: 1.34, color: 0x6edbff },
+    special: { type: "orb_volley", cooldown: 5.8, windup: 0.52, triggerRange: 35, orbCount: 3, spread: 0.3, speed: 24, radius: 1.6, damage: 21, color: 0x7ce0ff },
   },
   {
     name: "Eclipse Warden",
@@ -83,6 +102,7 @@ const WAVE_BOSS_PROFILES = [
     speedMultiplier: 1.17,
     damageMultiplier: 1.28,
     laser: { charge: 0.64, duration: 1.16, cooldown: 3.6, range: 37, damagePerSecond: 26, width: 1.4, color: 0x7ee2ff },
+    special: { type: "zone_blast", cooldown: 5.4, windup: 0.56, triggerRange: 34, zoneDelay: 0.72, zoneRadius: 6.0, zoneDamage: 31, color: 0x89e7ff },
   },
   {
     name: "Abyss Sovereign",
@@ -94,6 +114,7 @@ const WAVE_BOSS_PROFILES = [
     speedMultiplier: 1.08,
     damageMultiplier: 1.68,
     laser: { charge: 0.58, duration: 1.35, cooldown: 2.9, range: 39, damagePerSecond: 34, width: 1.9, color: 0x27cfff },
+    special: { type: "combo", cooldown: 5.3, windup: 0.58, triggerRange: 36, orbCount: 4, spread: 0.36, speed: 28, radius: 1.9, damage: 24, zoneDelay: 0.64, zoneRadius: 6.4, zoneDamage: 35, color: 0x32d8ff },
   },
 ];
 
@@ -188,12 +209,16 @@ export class Game {
     this.selectedDifficulty = "medium";
     this.difficultyTuning = {
       playerSpeedScale: 1.0,
+      playerDamageOutputScale: 1.0,
       playerDamageTakenScale: 1.0,
       enemySpeedScale: 1.0,
       enemyHealthScale: 1.0,
       spawnRateScale: 1.0,
       powerUpIntervalScale: 1.0,
       maxActiveEnemies: 45,
+      bossLaserDamageScale: 1.0,
+      bossSpecialDamageScale: 1.0,
+      bossAttackCooldownScale: 1.0,
     };
 
     // Shake
@@ -217,6 +242,9 @@ export class Game {
     this.waveOverlayTimeoutId = null;
     this.bossLaserGeometry = new THREE.CylinderGeometry(0.08, 0.12, 1, 10, 1, true);
     this.bossLaserGeometry.rotateX(Math.PI / 2);
+    this.bossSpecialProjectiles = [];
+    this.bossPendingZoneBlasts = [];
+    this.projectileSweepRaycaster = new THREE.Raycaster();
 
     // UI Cache - PREVENT LAG by only updating DOM when changed
     this.uiCache = {
@@ -302,12 +330,12 @@ export class Game {
       this.enemies,
       this.audio,
       (points) => this.addScore(points),
-      (pos, dir) => this.spawnProjectile(pos, dir),
+      (pos, dir, weaponConfig) => this.spawnProjectile(pos, dir, weaponConfig),
       (amount) => this.shake(amount), // Inject shake callback
       (isHeadshot) => this.showHitMarker(isHeadshot), // Inject hit marker callback
       (health, type) => this.onPlayerHealthChange(health, type), // Health change callback
       this.particles, // Pass particle system for blood effects
-      () => this.playerDamageMultiplier, // Damage multiplier getter
+      () => this.playerDamageMultiplier * this.difficultyTuning.playerDamageOutputScale, // Damage multiplier getter
       this.renderer.domElement, // Pass renderer DOM element for PointerLockControls
     );
     this.player.setSpeedMultiplier(this.playerSpeedMultiplier);
@@ -821,10 +849,39 @@ export class Game {
       // Projectiles
       for (let i = this.projectiles.length - 1; i >= 0; i--) {
         const proj = this.projectiles[i];
+        const startPos = proj.prevPosition
+          ? proj.prevPosition.clone()
+          : proj.mesh
+            ? proj.mesh.position.clone()
+            : new THREE.Vector3();
         proj.update(dt);
+        if (!proj.isDead) {
+          const endPos = proj.mesh
+            ? proj.mesh.position
+            : new THREE.Vector3(
+              proj.body.position.x,
+              proj.body.position.y,
+              proj.body.position.z,
+            );
+          const impact = this.findProjectileSweepHit(proj, startPos, endPos);
+          if (impact) {
+            proj.impactEnemy = impact.enemy;
+            proj.impactHeadshot = this.isHeadshotPoint(
+              impact.enemy,
+              impact.point,
+              impact.object,
+            );
+            proj.explode(impact.point);
+          }
+        }
         if (proj.isDead) {
+          const explosionPos = proj.impactPoint
+            ? proj.impactPoint
+            : proj.mesh
+              ? proj.mesh.position.clone()
+              : startPos;
+          this.handleProjectileExplosion(proj, explosionPos);
           if (proj.mesh) {
-            this.createExplosion(proj.mesh.position, 8);
             this.scene.remove(proj.mesh);
           }
           if (proj.body) this.world.removeBody(proj.body);
@@ -871,6 +928,7 @@ export class Game {
           if (enemy.isBoss && !enemy.isDead) {
             this.updateBossHealthBar(enemy.health, enemy.maxHealth);
             this.updateBossLaserAttack(enemy, dt);
+            this.updateBossSpecialAttack(enemy, dt);
           }
         } catch (err) {
           console.error("Error updating enemy:", err);
@@ -947,6 +1005,9 @@ export class Game {
           this.enemies.splice(i, 1);
         }
       }
+
+      this.updateBossSpecialProjectiles(dt);
+      this.updateBossZoneBlasts(dt);
     }
 
     // Render after all simulation updates to reduce frame-latency.
@@ -962,31 +1023,43 @@ export class Game {
   configureDifficulty(difficulty = "medium") {
     const presets = {
       easy: {
-        playerSpeedScale: 0.95,
-        playerDamageTakenScale: 0.78,
-        enemySpeedScale: 0.82,
-        enemyHealthScale: 0.85,
-        spawnRateScale: 1.25,
-        powerUpIntervalScale: 0.8,
-        maxActiveEnemies: 26,
+        playerSpeedScale: 1.03,
+        playerDamageOutputScale: 1.16,
+        playerDamageTakenScale: 0.72,
+        enemySpeedScale: 0.8,
+        enemyHealthScale: 0.82,
+        spawnRateScale: 1.32,
+        powerUpIntervalScale: 0.74,
+        maxActiveEnemies: 24,
+        bossLaserDamageScale: 0.72,
+        bossSpecialDamageScale: 0.74,
+        bossAttackCooldownScale: 1.14,
       },
       medium: {
         playerSpeedScale: 1.0,
+        playerDamageOutputScale: 1.0,
         playerDamageTakenScale: 1.0,
-        enemySpeedScale: 0.95,
+        enemySpeedScale: 0.97,
         enemyHealthScale: 1.0,
         spawnRateScale: 1.0,
         powerUpIntervalScale: 1.0,
-        maxActiveEnemies: 34,
+        maxActiveEnemies: 33,
+        bossLaserDamageScale: 1.0,
+        bossSpecialDamageScale: 1.0,
+        bossAttackCooldownScale: 1.0,
       },
       hard: {
         playerSpeedScale: 1.05,
-        playerDamageTakenScale: 1.2,
-        enemySpeedScale: 1.08,
-        enemyHealthScale: 1.15,
-        spawnRateScale: 0.85,
-        powerUpIntervalScale: 1.15,
+        playerDamageOutputScale: 0.92,
+        playerDamageTakenScale: 1.24,
+        enemySpeedScale: 1.12,
+        enemyHealthScale: 1.22,
+        spawnRateScale: 0.82,
+        powerUpIntervalScale: 1.2,
         maxActiveEnemies: 42,
+        bossLaserDamageScale: 1.24,
+        bossSpecialDamageScale: 1.22,
+        bossAttackCooldownScale: 0.88,
       },
     };
 
@@ -1005,6 +1078,7 @@ export class Game {
     this.hideBossHealthBar();
     this.hideWaveOverlay();
     this.resetCombatHudFeedback();
+    this.clearBossSpecialEffects?.();
     this.uiCache.score = -1;
     this.uiCache.remainingEnemies = null;
     this.uiCache.weaponString = "";
@@ -1139,6 +1213,7 @@ export class Game {
     for (const enemy of this.enemies) {
       if (enemy?.isBoss) this.cleanupBossLaser(enemy);
     }
+    this.clearBossSpecialEffects?.();
     if (this.particles?.reset) this.particles.reset();
     this.showEndScreen({
       title: "GAME OVER",
@@ -1180,6 +1255,7 @@ export class Game {
       this.waveOverlayTimeoutId = null;
     }
     if (this.particles?.reset) this.particles.reset();
+    this.clearBossSpecialEffects?.();
     if (this.healthBars?.clear) this.healthBars.clear();
 
     // Reset pooled one-shot lights.
@@ -1340,6 +1416,7 @@ export class Game {
     for (const enemy of this.enemies) {
       if (enemy && enemy.isBoss) this.cleanupBossLaser(enemy);
     }
+    this.clearBossSpecialEffects?.();
     if (this.particles?.reset) this.particles.reset();
 
     this.hideBossHealthBar();
@@ -1674,6 +1751,21 @@ export class Game {
       color: new THREE.Color(cfg.color || DEFAULT_BOSS_LASER.color),
       aimPoint: new THREE.Vector3(),
       eyeBuffer: [new THREE.Vector3(), new THREE.Vector3()],
+    };
+  }
+
+  initBossSpecialState(enemy, profile) {
+    const cfg = {
+      ...DEFAULT_BOSS_SPECIAL,
+      ...(profile?.special || {}),
+    };
+
+    enemy.bossSpecialState = {
+      phase: "cooldown",
+      timer: cfg.cooldown * THREE.MathUtils.lerp(0.66, 1.0, Math.random()),
+      config: cfg,
+      targetPoint: new THREE.Vector3(),
+      color: new THREE.Color(cfg.color || DEFAULT_BOSS_SPECIAL.color),
     };
   }
 
@@ -2075,6 +2167,7 @@ export class Game {
 
         this.applyBossProfileVisuals(enemy, bossProfile);
         this.initBossLaserState(enemy, bossProfile);
+        this.initBossSpecialState?.(enemy, bossProfile);
         this.currentBoss = enemy;
       }
       enemy.health *= this.difficultyTuning.enemyHealthScale;
@@ -2234,6 +2327,8 @@ export class Game {
     if (!enemy?.isBoss || !enemy.mesh || !enemy.bossLaserState) return;
     const state = enemy.bossLaserState;
     const cfg = state.config || DEFAULT_BOSS_LASER;
+    const laserDamageScale = this.difficultyTuning?.bossLaserDamageScale || 1.0;
+    const attackCooldownScale = this.difficultyTuning?.bossAttackCooldownScale || 1.0;
     const playerPoint = this.player.camera
       ? this.player.camera.position
       : this.player.body.position;
@@ -2290,18 +2385,297 @@ export class Game {
       );
 
       if (hitPlayer) {
-        this.damagePlayer(cfg.damagePerSecond * dt);
+        this.damagePlayer(cfg.damagePerSecond * laserDamageScale * dt);
         if (Math.random() < 0.18) this.shake(0.06);
       }
 
       if (state.timer <= 0) {
         state.phase = "cooldown";
         state.timer =
-          cfg.cooldown * THREE.MathUtils.lerp(0.92, 1.08, Math.random());
+          cfg.cooldown *
+          attackCooldownScale *
+          THREE.MathUtils.lerp(0.92, 1.08, Math.random());
         this.hideBossLaser(enemy);
         this.updateBossEyeGlow(enemy, state, 0.1);
       }
     }
+  }
+
+  spawnBossSpecialProjectile(origin, direction, cfg, color) {
+    const radius = THREE.MathUtils.clamp(
+      Number.isFinite(cfg.radius) ? cfg.radius : 1.4,
+      0.8,
+      2.8,
+    );
+    const mesh = new THREE.Mesh(
+      new THREE.SphereGeometry(radius * 0.24, 14, 10),
+      new THREE.MeshBasicMaterial({
+        color: color?.getHex?.() || cfg.color || DEFAULT_BOSS_SPECIAL.color,
+        transparent: true,
+        opacity: 0.92,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        toneMapped: false,
+      }),
+    );
+    mesh.position.copy(origin);
+    mesh.renderOrder = 7;
+    mesh.userData.noBulletBlock = true;
+    mesh.userData.ephemeralFx = "boss-orb";
+    this.scene.add(mesh);
+
+    const velocity = direction.clone().normalize().multiplyScalar(
+      Number.isFinite(cfg.speed) ? cfg.speed : DEFAULT_BOSS_SPECIAL.speed,
+    );
+
+    this.bossSpecialProjectiles.push({
+      mesh,
+      velocity,
+      life: 5.0,
+      radius,
+      damage: Math.max(
+        8,
+        (Number.isFinite(cfg.damage) ? cfg.damage : DEFAULT_BOSS_SPECIAL.damage) *
+          (this.difficultyTuning?.bossSpecialDamageScale || 1.0),
+      ),
+      color: color?.clone?.() || new THREE.Color(cfg.color || DEFAULT_BOSS_SPECIAL.color),
+    });
+  }
+
+  queueBossZoneBlast(position, cfg, color) {
+    const radius = Math.max(2.8, cfg.zoneRadius || cfg.radius || 5.4);
+    const delay = Math.max(0.3, cfg.zoneDelay || 0.8);
+
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(radius * 0.62, radius, 40),
+      new THREE.MeshBasicMaterial({
+        color: color?.getHex?.() || cfg.color || DEFAULT_BOSS_SPECIAL.color,
+        transparent: true,
+        opacity: 0.45,
+        side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        toneMapped: false,
+      }),
+    );
+    ring.rotation.x = -Math.PI * 0.5;
+    ring.position.copy(position);
+    ring.position.y = 0.15;
+    ring.renderOrder = 6;
+    ring.userData.noBulletBlock = true;
+    ring.userData.ephemeralFx = "boss-zone";
+    this.scene.add(ring);
+
+    this.bossPendingZoneBlasts.push({
+      mesh: ring,
+      position: position.clone(),
+      timer: delay,
+      totalDelay: delay,
+      radius,
+      damage: Math.max(
+        10,
+        (Number.isFinite(cfg.zoneDamage) ? cfg.zoneDamage : cfg.damage || 24) *
+          (this.difficultyTuning?.bossSpecialDamageScale || 1.0),
+      ),
+      color: color?.clone?.() || new THREE.Color(cfg.color || DEFAULT_BOSS_SPECIAL.color),
+    });
+  }
+
+  castBossShockwave(enemy, cfg, color) {
+    const radius = Math.max(4.5, cfg.radius || 8.0);
+    const damage = Math.max(
+      10,
+      (cfg.damage || DEFAULT_BOSS_SPECIAL.damage) *
+        (this.difficultyTuning?.bossSpecialDamageScale || 1.0),
+    );
+    const center = enemy.mesh.position.clone();
+    center.y = Math.max(0.8, center.y);
+    this.createExplosion(center, radius, true, {
+      applyEnemyDamage: false,
+      playerDamage: damage,
+      color: color?.getHex?.() || cfg.color || DEFAULT_BOSS_SPECIAL.color,
+    });
+  }
+
+  castBossOrbVolley(enemy, state, cfg, color) {
+    const eyePositions = this.getBossEyeWorldPositions(enemy);
+    const target = state.targetPoint.clone();
+    const count = Math.max(1, Math.round(cfg.orbCount || 2));
+    const spread = THREE.MathUtils.clamp(cfg.spread || 0.2, 0, 0.65);
+
+    for (let i = 0; i < count; i++) {
+      const origin = eyePositions[i % 2].clone();
+      const dir = target.clone().sub(origin).normalize();
+      const yaw = (i - (count - 1) * 0.5) * spread;
+      dir.applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
+      dir.y += (Math.random() - 0.5) * spread * 0.35;
+      dir.normalize();
+      this.spawnBossSpecialProjectile(origin, dir, cfg, color);
+    }
+  }
+
+  castBossZoneBlast(state, cfg, color) {
+    const targetPos = state.targetPoint.clone();
+    targetPos.y = 0.15;
+    this.queueBossZoneBlast(targetPos, cfg, color);
+  }
+
+  updateBossSpecialAttack(enemy, dt) {
+    if (!enemy?.isBoss || !enemy.mesh || !enemy.bossSpecialState) return;
+    const state = enemy.bossSpecialState;
+    const cfg = state.config || DEFAULT_BOSS_SPECIAL;
+    const playerPoint = this.player?.body?.position;
+    if (!playerPoint) return;
+
+    state.timer -= dt;
+    const distToPlayer = enemy.mesh.position.distanceTo(playerPoint);
+
+    if (state.phase === "cooldown") {
+      if (state.timer <= 0 && distToPlayer <= (cfg.triggerRange || 28)) {
+        state.phase = "windup";
+        state.timer = Math.max(0.22, cfg.windup || DEFAULT_BOSS_SPECIAL.windup);
+        state.targetPoint.copy(playerPoint);
+      }
+      return;
+    }
+
+    if (state.phase === "windup") {
+      state.targetPoint.lerp(playerPoint, Math.min(1, dt * 2.6));
+      const charge = THREE.MathUtils.clamp(
+        1 - Math.max(0, state.timer) / Math.max(cfg.windup || 0.7, 0.001),
+        0,
+        1,
+      );
+      if (enemy.bossLaserState) {
+        this.updateBossEyeGlow(enemy, enemy.bossLaserState, 0.45 + charge * 0.5);
+      }
+
+      if (state.timer <= 0) {
+        const color = state.color || new THREE.Color(cfg.color || DEFAULT_BOSS_SPECIAL.color);
+        switch (cfg.type) {
+          case "orb_volley":
+            this.castBossOrbVolley(enemy, state, cfg, color);
+            break;
+          case "zone_blast":
+            this.castBossZoneBlast(state, cfg, color);
+            break;
+          case "combo":
+            this.castBossOrbVolley(enemy, state, cfg, color);
+            this.castBossZoneBlast(state, cfg, color);
+            break;
+          case "shockwave":
+          default:
+            this.castBossShockwave(enemy, cfg, color);
+            break;
+        }
+
+        state.phase = "cooldown";
+        const cooldownScale = this.difficultyTuning?.bossAttackCooldownScale || 1.0;
+        state.timer =
+          Math.max(0.7, cfg.cooldown || DEFAULT_BOSS_SPECIAL.cooldown) *
+          cooldownScale *
+          THREE.MathUtils.lerp(0.92, 1.08, Math.random());
+      }
+    }
+  }
+
+  updateBossSpecialProjectiles(dt) {
+    if (!Array.isArray(this.bossSpecialProjectiles)) return;
+    const playerPoint = this.player?.body?.position;
+
+    for (let i = this.bossSpecialProjectiles.length - 1; i >= 0; i--) {
+      const orb = this.bossSpecialProjectiles[i];
+      if (!orb?.mesh) {
+        this.bossSpecialProjectiles.splice(i, 1);
+        continue;
+      }
+
+      orb.life -= dt;
+      orb.mesh.position.addScaledVector(orb.velocity, dt);
+      orb.mesh.scale.setScalar(0.9 + Math.sin(this.gameTime * 22 + i) * 0.08);
+
+      let shouldExplode = false;
+      if (playerPoint) {
+        const distToPlayer = orb.mesh.position.distanceTo(playerPoint);
+        if (distToPlayer <= orb.radius + 0.45) {
+          shouldExplode = true;
+        }
+      }
+
+      if (
+        orb.life <= 0 ||
+        Math.abs(orb.mesh.position.x) > 52 ||
+        Math.abs(orb.mesh.position.z) > 52 ||
+        orb.mesh.position.y < -2 ||
+        orb.mesh.position.y > 30
+      ) {
+        shouldExplode = true;
+      }
+
+      if (shouldExplode) {
+        this.createExplosion(orb.mesh.position, orb.radius, true, {
+          applyEnemyDamage: false,
+          playerDamage: orb.damage,
+          color: orb.color?.getHex?.() || DEFAULT_BOSS_SPECIAL.color,
+        });
+        this.scene.remove(orb.mesh);
+        if (orb.mesh.geometry) orb.mesh.geometry.dispose();
+        if (orb.mesh.material) orb.mesh.material.dispose();
+        this.bossSpecialProjectiles.splice(i, 1);
+      }
+    }
+  }
+
+  updateBossZoneBlasts(dt) {
+    if (!Array.isArray(this.bossPendingZoneBlasts)) return;
+
+    for (let i = this.bossPendingZoneBlasts.length - 1; i >= 0; i--) {
+      const zone = this.bossPendingZoneBlasts[i];
+      if (!zone?.mesh) {
+        this.bossPendingZoneBlasts.splice(i, 1);
+        continue;
+      }
+
+      zone.timer -= dt;
+      const progress = THREE.MathUtils.clamp(
+        1 - Math.max(0, zone.timer) / Math.max(zone.totalDelay, 0.001),
+        0,
+        1,
+      );
+      const pulse = 0.86 + progress * 0.18 + Math.sin(this.gameTime * 10 + i) * 0.04;
+      zone.mesh.scale.setScalar(pulse);
+      zone.mesh.material.opacity = 0.22 + progress * 0.56;
+
+      if (zone.timer <= 0) {
+        this.createExplosion(zone.position, zone.radius, true, {
+          applyEnemyDamage: false,
+          playerDamage: zone.damage,
+          color: zone.color?.getHex?.() || DEFAULT_BOSS_SPECIAL.color,
+        });
+        this.scene.remove(zone.mesh);
+        if (zone.mesh.geometry) zone.mesh.geometry.dispose();
+        if (zone.mesh.material) zone.mesh.material.dispose();
+        this.bossPendingZoneBlasts.splice(i, 1);
+      }
+    }
+  }
+
+  clearBossSpecialEffects() {
+    for (const orb of this.bossSpecialProjectiles) {
+      if (!orb?.mesh) continue;
+      this.scene.remove(orb.mesh);
+      if (orb.mesh.geometry) orb.mesh.geometry.dispose();
+      if (orb.mesh.material) orb.mesh.material.dispose();
+    }
+    this.bossSpecialProjectiles = [];
+
+    for (const zone of this.bossPendingZoneBlasts) {
+      if (!zone?.mesh) continue;
+      this.scene.remove(zone.mesh);
+      if (zone.mesh.geometry) zone.mesh.geometry.dispose();
+      if (zone.mesh.material) zone.mesh.material.dispose();
+    }
+    this.bossPendingZoneBlasts = [];
   }
 
   hideBossLaser(enemy) {
@@ -2329,6 +2703,10 @@ export class Game {
     if (enemy.bossLaserState) {
       enemy.bossLaserState.phase = "cooldown";
       enemy.bossLaserState.timer = 1.2;
+    }
+    if (enemy.bossSpecialState) {
+      enemy.bossSpecialState.phase = "cooldown";
+      enemy.bossSpecialState.timer = 1.8;
     }
   }
 
@@ -2372,14 +2750,143 @@ export class Game {
     if (sub) sub.innerText = "GET READY";
   }
 
-  spawnProjectile(pos, dir) {
+  findEnemyFromHitObject(object) {
+    let probe = object;
+    while (probe) {
+      const enemy = this.enemies.find((candidate) => candidate?.mesh === probe);
+      if (enemy) return enemy;
+      probe = probe.parent;
+    }
+    return null;
+  }
+
+  findProjectileSweepHit(projectile, startPos, endPos) {
+    if (!startPos || !endPos) return null;
+    const travel = new THREE.Vector3().subVectors(endPos, startPos);
+    const travelLen = travel.length();
+    if (travelLen < 0.0001) return null;
+
+    const roots = [];
+    for (const enemy of this.enemies) {
+      if (!enemy || enemy.isDead || !enemy.mesh) continue;
+      roots.push(enemy.mesh);
+    }
+    if (roots.length === 0) return null;
+
+    const direction = travel.multiplyScalar(1 / travelLen);
+    this.projectileSweepRaycaster.set(startPos, direction);
+    this.projectileSweepRaycaster.near = 0;
+    this.projectileSweepRaycaster.far = travelLen + 0.6;
+
+    const intersections = this.projectileSweepRaycaster.intersectObjects(
+      roots,
+      true,
+    );
+    for (const intersect of intersections) {
+      const enemy = this.findEnemyFromHitObject(intersect.object);
+      if (!enemy || enemy.isDead) continue;
+      return {
+        enemy,
+        point: intersect.point.clone(),
+        object: intersect.object,
+      };
+    }
+    return null;
+  }
+
+  isHeadshotPoint(enemy, point, hitObject = null) {
+    if (!enemy || !enemy.mesh || !point) return false;
+
+    let probe = hitObject;
+    while (probe) {
+      if (probe.userData?.isHeadshot) return true;
+      if (
+        typeof probe.name === "string" &&
+        /head|visor|mask|helm|eye/i.test(probe.name)
+      ) {
+        return true;
+      }
+      probe = probe.parent;
+    }
+
+    const bounds = new THREE.Box3().setFromObject(enemy.mesh);
+    if (bounds.isEmpty()) return false;
+    const height = Math.max(0.001, bounds.max.y - bounds.min.y);
+    const cutoffRatio = enemy.isBoss ? 0.68 : 0.62;
+    const cutoffY = bounds.min.y + height * cutoffRatio;
+    return point.y >= cutoffY;
+  }
+
+  handleProjectileExplosion(projectile, position) {
+    const hitEnemy = projectile?.impactEnemy || null;
+    const isHeadshot = !!projectile?.impactHeadshot;
+    const baseDirectDamage = Number.isFinite(projectile?.directDamage)
+      ? projectile.directDamage
+      : 110;
+    const directDamage = hitEnemy
+      ? baseDirectDamage * (isHeadshot ? projectile.headshotMultiplier || 1.75 : 1)
+      : 0;
+
+    this.createExplosion(
+      position,
+      Number.isFinite(projectile?.radius) ? projectile.radius : 8,
+      false,
+      {
+        enemyDamage: Number.isFinite(projectile?.splashDamage)
+          ? projectile.splashDamage
+          : 96,
+        minEnemyDamageFactor: 0.18,
+        directHitEnemy: hitEnemy,
+        directHitDamage: directDamage,
+        splashOnDirectTargetScale: 0.28,
+        showHitMarker: !!hitEnemy,
+        headshot: isHeadshot,
+        headshotScoreBonus: isHeadshot ? 60 : 0,
+        color: 0xff7a35,
+      },
+    );
+  }
+
+  spawnProjectile(pos, dir, weaponConfig = {}) {
     this.projectiles.push(
-      new Projectile(this.scene, this.world, pos, dir, this.player),
+      new Projectile(this.scene, this.world, pos, dir, this.player, weaponConfig),
     );
     this.shake(0.2);
   }
 
-  createExplosion(pos, radius = 5, damagePlayer = false) {
+  createExplosion(pos, radius = 5, damagePlayer = false, options = {}) {
+    const applyEnemyDamage = options.applyEnemyDamage !== false;
+    const enemyDamage = Number.isFinite(options.enemyDamage)
+      ? options.enemyDamage
+      : 100;
+    const minEnemyDamageFactor = THREE.MathUtils.clamp(
+      Number.isFinite(options.minEnemyDamageFactor) ? options.minEnemyDamageFactor : 0,
+      0,
+      1,
+    );
+    const directHitEnemy = options.directHitEnemy || null;
+    const directHitDamage = Number.isFinite(options.directHitDamage)
+      ? options.directHitDamage
+      : 0;
+    const splashOnDirectTargetScale = THREE.MathUtils.clamp(
+      Number.isFinite(options.splashOnDirectTargetScale)
+        ? options.splashOnDirectTargetScale
+        : 0.55,
+      0,
+      1,
+    );
+    const explosionColor = Number.isFinite(options.color)
+      ? options.color
+      : 0xff5500;
+    const playerDamage = Number.isFinite(options.playerDamage)
+      ? options.playerDamage
+      : 40;
+    const showHitMarker = !!options.showHitMarker;
+    const isHeadshot = !!options.headshot;
+    const headshotScoreBonus = Number.isFinite(options.headshotScoreBonus)
+      ? options.headshotScoreBonus
+      : 0;
+
     if (this.audio) this.audio.playExplosion();
 
     // Flash light - Use Pool
@@ -2395,7 +2902,7 @@ export class Game {
     // Visual Explosion Sphere (Glowy)
     const geo = new THREE.SphereGeometry(radius * 0.5, 32, 32);
     const mat = new THREE.MeshBasicMaterial({
-      color: 0xff5500,
+      color: explosionColor,
       transparent: true,
       opacity: 0.9,
     });
@@ -2428,23 +2935,45 @@ export class Game {
     // Particle Burst
     this.particles.emitExplosion(pos, 20);
 
-    // Damage Enemies
-    for (const enemy of this.enemies) {
-      if (!enemy.mesh) continue;
-      const dist = enemy.mesh.position.distanceTo(pos);
-      if (dist < radius) {
-        enemy.takeDamage(100 * (1 - dist / radius));
+    let anyEnemyDamage = false;
+    if (applyEnemyDamage) {
+      for (const enemy of this.enemies) {
+        if (!enemy?.mesh || enemy.isDead) continue;
+        const dist = enemy.mesh.position.distanceTo(pos);
+        if (dist >= radius) continue;
+
+        const normalized = THREE.MathUtils.clamp(1 - dist / radius, 0, 1);
+        let splashDamage = enemyDamage *
+          THREE.MathUtils.lerp(minEnemyDamageFactor, 1, normalized);
+        if (enemy === directHitEnemy) {
+          splashDamage *= splashOnDirectTargetScale;
+        }
+
+        const totalDamage = splashDamage +
+          (enemy === directHitEnemy ? directHitDamage : 0);
+        if (totalDamage <= 0.05) continue;
+
+        enemy.takeDamage(totalDamage);
+        anyEnemyDamage = true;
+
         if (enemy.isDead && !enemy.scored) {
           enemy.scored = true;
-          this.addScore(100);
+          this.addScore(enemy.isBoss ? 500 : 100);
         }
+      }
+    }
+
+    if (showHitMarker && (anyEnemyDamage || directHitEnemy)) {
+      this.showHitMarker(isHeadshot);
+      if (isHeadshot && headshotScoreBonus > 0) {
+        this.addScore(headshotScoreBonus);
       }
     }
 
     if (damagePlayer) {
       const distToPlayer = this.player.body.position.distanceTo(pos);
       if (distToPlayer < radius) {
-        this.damagePlayer(40 * (1 - distToPlayer / radius));
+        this.damagePlayer(playerDamage * (1 - distToPlayer / radius));
         this.shake(1.0); // Big shake
       }
     }

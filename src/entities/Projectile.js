@@ -3,15 +3,28 @@ import { Body, Sphere, Vec3 } from "cannon-es";
 import { MeshCache } from "../utils/MeshCache.js";
 
 export class Projectile {
-  constructor(scene, world, position, direction, owner) {
+  constructor(scene, world, position, direction, owner, config = {}) {
     this.scene = scene;
     this.world = world;
     this.owner = owner; // 'player' or 'enemy'
 
-    this.speed = 20;
-    this.damage = 50;
-    this.radius = 5; // Explosion radius
+    this.speed = Number.isFinite(config.speed) ? config.speed : 34;
+    this.damage = Number.isFinite(config.damage) ? config.damage : 120;
+    this.directDamage = Number.isFinite(config.directDamage)
+      ? config.directDamage
+      : this.damage * 0.9;
+    this.splashDamage = Number.isFinite(config.splashDamage)
+      ? config.splashDamage
+      : this.damage;
+    this.radius = Number.isFinite(config.radius) ? config.radius : 8; // Explosion radius
+    this.headshotMultiplier = Number.isFinite(config.headshotMultiplier)
+      ? config.headshotMultiplier
+      : 1.75;
     this.isDead = false;
+    this.impactEnemy = null;
+    this.impactHeadshot = false;
+    this.impactPoint = null;
+    this.prevPosition = new THREE.Vector3().copy(position);
 
     // Visuals - Use Cache!
     const cache = MeshCache.getInstance();
@@ -31,6 +44,8 @@ export class Projectile {
       mass: 1,
       position: new Vec3(position.x, position.y, position.z),
       shape: shape,
+      collisionFilterGroup: 16,
+      collisionFilterMask: 1 | 4,
     });
     this.body.velocity.set(
       direction.x * this.speed,
@@ -39,6 +54,8 @@ export class Projectile {
     );
     // Projectiles shouldn't rotate from physics for now, simplified
     this.body.linearDamping = 0;
+    this.body.ccdSpeedThreshold = 0.08;
+    this.body.ccdIterations = 10;
 
     this.world.addBody(this.body);
 
@@ -56,14 +73,19 @@ export class Projectile {
   }
 
   update(dt) {
+    this.prevPosition.copy(this.mesh.position);
     this.mesh.position.copy(this.body.position);
 
     // Lifetime cleanup if needed (e.g. falls out of world)
     if (this.mesh.position.y < -10) this.isDead = true;
   }
 
-  explode() {
+  explode(point = null) {
+    if (this.isDead) return;
     this.isDead = true;
+    if (point) {
+      this.impactPoint = point.clone();
+    }
 
     // Visual Explosion (simple scaling sphere or particle)
     // For now, just remove.

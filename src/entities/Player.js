@@ -113,6 +113,11 @@ export class Player {
         damage: 120,
         rate: 1.35,
         type: "projectile",
+        projectileSpeed: 34,
+        directDamage: 132,
+        splashDamage: 96,
+        splashRadius: 8.8,
+        headshotMultiplier: 1.75,
         ammo: 8,
         maxAmmo: 14,
       },
@@ -855,7 +860,14 @@ export class Player {
         .clone()
         .add(dir.clone().multiplyScalar(1));
       if (this.onShootProjectile) {
-        this.onShootProjectile(spawnPos, dir);
+        this.onShootProjectile(spawnPos, dir, {
+          speed: weapon.projectileSpeed,
+          damage: weapon.damage,
+          directDamage: weapon.directDamage,
+          splashDamage: weapon.splashDamage,
+          radius: weapon.splashRadius,
+          headshotMultiplier: weapon.headshotMultiplier,
+        });
       }
     } else if (weapon.type === "shotgun") {
       const pelletHits = [];
@@ -976,7 +988,7 @@ export class Player {
         }
 
         // HEADSHOT BONUS!
-        const isHeadshot = !!intersect.object.userData.isHeadshot;
+        const isHeadshot = this.isHeadshotHit(enemy, intersect);
         if (isHeadshot) {
           finalDamage *= 2.0; // Double damage!
 
@@ -1058,6 +1070,31 @@ export class Player {
         suppressVfx: true,
       });
     }
+  }
+
+  isHeadshotHit(enemy, intersect) {
+    if (!enemy || !intersect) return false;
+
+    let obj = intersect.object;
+    while (obj) {
+      if (obj.userData?.isHeadshot) return true;
+      if (
+        typeof obj.name === "string" &&
+        /head|visor|mask|helm|eye/i.test(obj.name)
+      ) {
+        return true;
+      }
+      obj = obj.parent;
+    }
+
+    if (!intersect.point || !enemy.mesh) return false;
+    const bounds = new THREE.Box3().setFromObject(enemy.mesh);
+    if (bounds.isEmpty()) return false;
+
+    const height = Math.max(0.001, bounds.max.y - bounds.min.y);
+    const cutoffRatio = enemy.isBoss ? 0.68 : 0.62;
+    const cutoffY = bounds.min.y + height * cutoffRatio;
+    return intersect.point.y >= cutoffY;
   }
 
   playImpactFeedback(point, {
