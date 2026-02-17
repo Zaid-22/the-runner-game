@@ -1438,8 +1438,8 @@ export class Game {
   }
 
   getBossCountForWave(waveNum) {
-    if (waveNum >= this.totalWaves) return 1;
-    if (waveNum >= 4) return 2;
+    // Keep pacing readable and avoid late-wave boss HP spikes from stacking.
+    // Each wave now has one distinct boss.
     return 1;
   }
 
@@ -1790,10 +1790,17 @@ export class Game {
       this.getWaveComposition(clampedWave),
     );
 
-    const baseEnemyCount = 14 + (clampedWave - START_WAVE) * 4;
-    this.enemiesPerWave = clampedWave === this.totalWaves
-      ? baseEnemyCount + 8
-      : baseEnemyCount + (clampedWave >= 4 ? 2 : 0);
+    const perWaveEnemyCount = {
+      1: 14,
+      2: 18,
+      3: 22,
+      4: 26,
+      5: 28,
+      6: 32,
+    };
+    this.enemiesPerWave = perWaveEnemyCount[clampedWave] ||
+      perWaveEnemyCount[this.totalWaves] ||
+      32;
     this.spawnRate = Math.max(0.46, 1.04 - clampedWave * 0.055);
     this.spawnRate *= this.difficultyTuning.spawnRateScale;
 
@@ -2139,8 +2146,15 @@ export class Game {
         enemy.config.damage *= bossProfile.damageMultiplier || 1.0;
 
         // Scale Boss Health with wave and profile.
-        const healthMult =
-          (1 + this.waveNumber * 0.18) * (bossProfile.healthMultiplier || 1.0);
+        const waveProgress = THREE.MathUtils.clamp(
+          (this.waveNumber - START_WAVE) /
+            Math.max(1, this.totalWaves - START_WAVE),
+          0,
+          1,
+        );
+        // Reduced boss HP ramp to keep medium/hard intense but not overlong.
+        const waveBossHealthRamp = THREE.MathUtils.lerp(1.08, 1.62, waveProgress);
+        const healthMult = waveBossHealthRamp * (bossProfile.healthMultiplier || 1.0);
         enemy.health *= healthMult;
         enemy.maxHealth = enemy.health;
 
