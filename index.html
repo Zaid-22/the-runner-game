@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>The Runner - ITZone Edition</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <!-- HUD -->
+    <div id="ui" style="display: none">
+      <!-- Top Right: Wave -->
+      <div id="wave-container" class="hud-panel">
+        <div class="hud-label">WAVE</div>
+        <div id="wave-number" class="hud-value">1</div>
+      </div>
+
+      <div id="enemies-container" class="hud-panel">
+        <div class="hud-label">REMAINING</div>
+        <div id="enemies-remaining" class="hud-value">0</div>
+      </div>
+
+      <!-- Top Left: Performance -->
+      <div id="perf-meter" class="hud-panel">
+        <div class="hud-label">PERF</div>
+        <div id="perf-stats" class="hud-value">60 FPS | 16.7 ms | ULTRA</div>
+      </div>
+
+      <!-- Top Center: Score -->
+      <div id="score-container" class="hud-panel">
+        <div class="hud-label">SCORE</div>
+        <div id="score" class="hud-value">0</div>
+      </div>
+
+      <!-- Center: Crosshair -->
+      <div id="crosshair">
+        <div id="crosshair-dot"></div>
+      </div>
+      <div id="hit-marker"></div>
+
+      <!-- Bottom Left: Health -->
+      <div id="health-container" class="hud-panel">
+        <div class="hud-value" id="health">100</div>
+        <div class="hud-label">HP // VITALITY</div>
+      </div>
+
+      <!-- Bottom Right: Ammo / Weapon -->
+      <div id="ammo-container" class="hud-panel">
+        <div id="weapon" class="hud-value">PISTOL [90 / 150]</div>
+        <div class="hud-label">WEAPON // SYSTEM</div>
+      </div>
+    </div>
+
+    <!-- Main Menu -->
+    <div id="main-menu">
+      <h1
+        style="
+          font-size: 8vw !important;
+          color: #ff003c !important;
+          text-shadow:
+            0 0 30px #ff003c,
+            0 0 60px #ff003c,
+            0 0 100px red !important;
+          -webkit-text-fill-color: #ff003c !important;
+          font-family: &quot;Orbitron&quot;, sans-serif;
+          font-weight: 900;
+          letter-spacing: 5px;
+          line-height: 0.8;
+          margin-bottom: 2vh;
+        "
+      >
+        THE RUNNER
+      </h1>
+
+      <div class="credits-container" style="margin-bottom: 3vh">
+        <div
+          class="itzone-logo"
+          style="
+            font-size: 2.5rem !important;
+            font-weight: 900 !important;
+            color: white !important;
+            text-shadow: 0 0 30px rgba(255, 255, 255, 0.9) !important;
+          "
+        >
+          ITZone
+        </div>
+        <div
+          class="dev-credit"
+          style="font-size: 1.5rem !important; margin-top: 1rem"
+        >
+          Developed by Zaid Asaireh
+        </div>
+      </div>
+
+      <!-- Initial Start View -->
+      <div id="start-view" class="menu-section">
+        <button
+          class="diff-btn"
+          style="font-size: 2rem; padding: 2vh 4vw"
+          onclick="showDifficultySelect()"
+        >
+          START GAME
+        </button>
+      </div>
+
+      <!-- Difficulty Selection View (Hidden) -->
+      <div id="difficulty-view" class="menu-section" style="display: none">
+        <h3>SELECT DIFFICULTY</h3>
+        <div class="difficulty-select">
+          <button class="diff-btn" onclick="startGame('easy')">TOURIST</button>
+          <button class="diff-btn" onclick="startGame('medium')">NORMAL</button>
+          <button class="diff-btn" onclick="startGame('hard')">SERIOUS</button>
+        </div>
+        <button
+          class="diff-btn"
+          style="
+            margin-top: 20px;
+            font-size: 1rem;
+            padding: 10px 30px;
+            border-color: #666;
+            color: #aaa;
+          "
+          onclick="showStartView()"
+        >
+          BACK
+        </button>
+      </div>
+
+      <p class="controls-hint">
+        WASD to Move | SPACE to Jump | CLICK to Shoot | 1-3 Switch Weapon | F3 PERF
+      </p>
+    </div>
+
+    <!-- Pause Menu -->
+    <div id="pause-menu" style="display: none">
+      <h1>PAUSED</h1>
+      <button class="diff-btn" onclick="togglePause()">RESUME</button>
+    </div>
+
+    <!-- Game Over Menu -->
+    <div
+      id="game-over-screen"
+      style="
+        display: none;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.85);
+        z-index: 200;
+      "
+    >
+      <h1
+        style="
+          color: red;
+          font-size: 5rem;
+          font-family: &quot;Orbitron&quot;;
+          text-shadow: 0 0 20px red;
+        "
+      >
+        GAME OVER
+      </h1>
+      <h2 style="color: white; font-family: &quot;Rajdhani&quot;">
+        SCORE: <span id="final-score">0</span>
+      </h2>
+      <button class="diff-btn" onclick="restartGame()">TRY AGAIN</button>
+    </div>
+
+    <!-- Vignette / Overlays -->
+    <!-- Vignette / Overlays -->
+    <div id="low-health-overlay" style="display: none"></div>
+    <div id="damage-flash" class="flash-overlay red"></div>
+    <div id="heal-flash" class="flash-overlay green"></div>
+    <div id="ammo-flash" class="flash-overlay blue"></div>
+
+    <!-- Wave Overlay -->
+    <div
+      id="wave-message-overlay"
+      class="centered-overlay"
+      style="display: none"
+    >
+      <h1
+        id="wave-title"
+        class="overlay-text"
+        style="color: #0f0; text-shadow: 0 0 30px #0f0"
+      >
+        WAVE 1
+      </h1>
+      <p id="wave-subtitle" class="overlay-subtext">GET READY</p>
+    </div>
+
+    <!-- Boss Health Bar -->
+    <div id="boss-health-bar" style="display: none">
+      <div
+        class="boss-health-fill"
+        id="boss-health-fill"
+        style="width: 100%"
+      ></div>
+      <div
+        class="boss-health-text"
+        style="
+          position: absolute;
+          top: 50%;
+          left: 50%;
+          transform: translate(-50%, -50%);
+          color: white;
+          font-weight: bold;
+        "
+      >
+        BOSS
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+    <script>
+      // Global hooks
+      window.startGame = async (diff) => {
+        try {
+          let game = window.gameInstance;
+          if (!game && typeof window.ensureGameLoaded === "function") {
+            game = await window.ensureGameLoaded();
+          }
+          if (!game) {
+            console.error("Game instance not available.");
+            return;
+          }
+          game.startGame(diff);
+        } catch (e) {
+          console.error("Error starting game:", e);
+        }
+      };
+
+      window.togglePause = () => {
+        if (window.gameInstance) window.gameInstance.togglePause();
+      };
+
+      let restartWatchdogId = null;
+      window.restartGame = () => {
+        try {
+          if (window.gameInstance?.restartGame) {
+            window.gameInstance.restartGame();
+            if (restartWatchdogId) {
+              clearTimeout(restartWatchdogId);
+              restartWatchdogId = null;
+            }
+
+            const restartStartedAt = performance.now();
+            const pollRestartHealth = () => {
+              const g = window.gameInstance;
+              if (!g) {
+                window.location.reload();
+                return;
+              }
+
+              if (g.restartInProgress) {
+                restartWatchdogId = setTimeout(pollRestartHealth, 300);
+                return;
+              }
+
+              const elapsedSec = Math.max(
+                0,
+                (performance.now() - restartStartedAt) / 1000,
+              );
+              const currentGameTime = Number(g.gameTime || 0);
+              const invalidPlayer = !g.player || !g.player.body;
+              const finished = g.gameState === "PLAYING" && currentGameTime > 0.12;
+              const hardFailure = g.gameState === "MENU" && elapsedSec > 2.6;
+              const frozenTransition =
+                g.gameState === "TRANSITION" && elapsedSec > 6.2;
+              const frozenPlaying =
+                g.gameState === "PLAYING" &&
+                elapsedSec > 5.2 &&
+                currentGameTime < 0.12;
+
+              if (finished) {
+                restartWatchdogId = null;
+                return;
+              }
+
+              if (invalidPlayer || hardFailure || frozenTransition || frozenPlaying) {
+                console.warn("Restart validation failed, forcing full reload.");
+                window.location.reload();
+                return;
+              }
+
+              if (elapsedSec > 8.2) {
+                console.warn("Restart timeout exceeded, forcing full reload.");
+                window.location.reload();
+                return;
+              }
+
+              restartWatchdogId = setTimeout(pollRestartHealth, 320);
+            };
+
+            restartWatchdogId = setTimeout(pollRestartHealth, 920);
+            return;
+          }
+        } catch (e) {
+          console.error("Error restarting game:", e);
+        }
+        // Fallback to guaranteed recovery if runtime state is corrupted.
+        window.location.reload();
+      };
+
+      // Menu Navigation
+      window.showDifficultySelect = () => {
+        const startView = document.getElementById("start-view");
+        const diffView = document.getElementById("difficulty-view");
+        if (startView) startView.style.display = "none";
+        if (diffView) diffView.style.display = "block";
+      };
+
+      window.showStartView = () => {
+        const startView = document.getElementById("start-view");
+        const diffView = document.getElementById("difficulty-view");
+        if (startView) startView.style.display = "block";
+        if (diffView) diffView.style.display = "none";
+      };
+
+      // Global Error Handler
+      window.onerror = function (msg, url, line, col, error) {
+        console.error("Global Error:", msg, url, line, col, error);
+        return false;
+      };
+    </script>
+  </body>
+</html>
