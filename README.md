@@ -48,6 +48,7 @@ You fight through **6 waves**, each with a different boss, mixed enemy compositi
   - `scripts/gameplay-flow-sanity.mjs` (wave/restart/win-lose flow checks)
 - CI:
   - GitHub Actions workflow: `.github/workflows/smoke.yml`
+  - GitHub Actions workflow: `.github/workflows/production-gate.yml`
 
 ## Requirements
 
@@ -75,6 +76,7 @@ npm run build
 npm run preview
 npm run qa:smoke
 npm run qa:release
+npm run qa:gate
 ```
 
 Script meanings:
@@ -84,6 +86,7 @@ Script meanings:
 - `preview`: preview built output
 - `qa:smoke`: build + preview reachability check
 - `qa:release`: smoke + release sanity + gameplay flow sanity
+- `qa:gate`: strict production gate (build + release sanity + gameplay sanity + preview smoke)
 
 ## Controls
 
@@ -157,7 +160,8 @@ The runner/
 │       ├── MeshCache.js
 │       └── HealthBar.js
 └── .github/workflows/
-    └── smoke.yml
+    ├── smoke.yml
+    └── production-gate.yml
 ```
 
 Component responsibilities:
@@ -170,22 +174,20 @@ Component responsibilities:
 - `src/utils/*.js`: shared support systems (textures, caching, health bars)
 - `scripts/*.mjs`: automated publish checks
 - `.github/workflows/smoke.yml`: CI smoke gate on push/PR
+- `.github/workflows/production-gate.yml`: strict CI production gate
 
 ## Release Checklist
 
-Before publish, run:
+Automated gate:
 
 ```bash
-npm run qa:release
+npm run qa:gate
 ```
 
-Then do a short manual playtest:
+Required checklist:
 
-- Start game from menu for each difficulty
-- Complete at least one wave transition
-- Validate boss spawn, movement, and laser attack behavior
-- Validate death/victory and restart behavior
-- Validate weapon switching, ammo HUD, hit feedback, and power-up pickup flow
+- Follow `PRODUCTION_CHECKLIST.md` and mark all required manual QA items complete.
+- A release is `READY` only when the production CI gate is green and the checklist is fully complete.
 
 ## Credits
 

@@ -8,7 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "qa:smoke": "npm run build && node ./scripts/smoke-preview.mjs",
-    "qa:release": "npm run qa:smoke && node ./scripts/release-sanity.mjs && node ./scripts/gameplay-flow-sanity.mjs"
+    "qa:release": "npm run qa:smoke && node ./scripts/release-sanity.mjs && node ./scripts/gameplay-flow-sanity.mjs",
+    "qa:gate": "npm run build && node ./scripts/release-sanity.mjs && node ./scripts/gameplay-flow-sanity.mjs && node ./scripts/smoke-preview.mjs"
   },
   "devDependencies": {
     "vite": "^5.0.0"

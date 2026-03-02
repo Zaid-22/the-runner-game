@@ -1,0 +1,49 @@
+name: Production Gate
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  production-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Release Sanity
+        run: node ./scripts/release-sanity.mjs
+
+      - name: Gameplay Flow Sanity
+        run: node ./scripts/gameplay-flow-sanity.mjs
+
+      - name: Preview Smoke
+        env:
+          CI: "1"
+          SMOKE_HOST: "127.0.0.1"
+          SMOKE_PORT: "4173"
+        run: node ./scripts/smoke-preview.mjs
