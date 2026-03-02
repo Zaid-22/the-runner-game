@@ -47,6 +47,18 @@ const DEFAULT_BOSS_SPECIAL = {
   zoneDamage: 28,
   color: 0x66e8ff,
 };
+const DEFAULT_BOSS_BEHAVIOR = Object.freeze({
+  laserMode: "standard",
+  laserUnlockHealthRatio: 1.0,
+  laserCooldownScale: 1.0,
+  laserChargeScale: 1.0,
+  laserDurationScale: 1.0,
+  specialCooldownScale: 1.0,
+  specialWindupScale: 1.0,
+  specialChainChance: 0.0,
+  specialChainCooldownScale: 0.65,
+  openWithSpecial: false,
+});
 
 const WAVE_BOSS_PROFILES = [
   {
@@ -59,6 +71,7 @@ const WAVE_BOSS_PROFILES = [
     damageMultiplier: 1.0,
     laser: { charge: 0.9, duration: 0.95, cooldown: 4.8, range: 31, damagePerSecond: 16, width: 1.35, color: 0x66e8ff },
     special: { type: "shockwave", cooldown: 7.8, windup: 0.9, triggerRange: 20, radius: 10.2, damage: 22, color: 0x4fc9ff },
+    behavior: { laserMode: "off", openWithSpecial: true, specialCooldownScale: 0.7, specialWindupScale: 0.9 },
   },
   {
     name: "Void Reaper",
@@ -70,6 +83,7 @@ const WAVE_BOSS_PROFILES = [
     damageMultiplier: 1.12,
     laser: { charge: 0.78, duration: 1.05, cooldown: 4.2, range: 35, damagePerSecond: 19, width: 1.42, color: 0x79e9ff },
     special: { type: "orb_volley", cooldown: 6.4, windup: 0.55, triggerRange: 34, orbCount: 2, spread: 0.22, speed: 23, radius: 1.4, damage: 18, color: 0x9ef4ff },
+    behavior: { laserMode: "delayed", laserUnlockHealthRatio: 0.72, specialCooldownScale: 0.88, specialChainChance: 0.28 },
   },
   {
     name: "Nightfang Executioner",
@@ -81,6 +95,7 @@ const WAVE_BOSS_PROFILES = [
     damageMultiplier: 1.18,
     laser: { charge: 0.74, duration: 1.1, cooldown: 4.0, range: 34, damagePerSecond: 21, width: 1.45, color: 0x74d8ff },
     special: { type: "zone_blast", cooldown: 6.9, windup: 0.6, triggerRange: 32, zoneDelay: 0.88, zoneRadius: 5.4, zoneDamage: 28, color: 0x86dcff },
+    behavior: { laserMode: "burst", laserCooldownScale: 0.72, laserChargeScale: 0.85, laserDurationScale: 0.92 },
   },
   {
     name: "Rift Judicator",
@@ -92,6 +107,7 @@ const WAVE_BOSS_PROFILES = [
     damageMultiplier: 1.22,
     laser: { charge: 0.68, duration: 1.2, cooldown: 3.8, range: 36, damagePerSecond: 23, width: 1.34, color: 0x6edbff },
     special: { type: "orb_volley", cooldown: 5.8, windup: 0.52, triggerRange: 35, orbCount: 3, spread: 0.3, speed: 24, radius: 1.6, damage: 21, color: 0x7ce0ff },
+    behavior: { openWithSpecial: true, specialCooldownScale: 0.8, specialChainChance: 0.34 },
   },
   {
     name: "Eclipse Warden",
@@ -103,6 +119,7 @@ const WAVE_BOSS_PROFILES = [
     damageMultiplier: 1.28,
     laser: { charge: 0.64, duration: 1.16, cooldown: 3.6, range: 37, damagePerSecond: 26, width: 1.4, color: 0x7ee2ff },
     special: { type: "zone_blast", cooldown: 5.4, windup: 0.56, triggerRange: 34, zoneDelay: 0.72, zoneRadius: 6.0, zoneDamage: 31, color: 0x89e7ff },
+    behavior: { laserMode: "finisher", laserUnlockHealthRatio: 0.58, specialCooldownScale: 0.74, specialChainChance: 0.45 },
   },
   {
     name: "Abyss Sovereign",
@@ -115,6 +132,7 @@ const WAVE_BOSS_PROFILES = [
     damageMultiplier: 1.68,
     laser: { charge: 0.58, duration: 1.35, cooldown: 2.9, range: 39, damagePerSecond: 34, width: 1.9, color: 0x27cfff },
     special: { type: "combo", cooldown: 5.3, windup: 0.58, triggerRange: 36, orbCount: 4, spread: 0.36, speed: 28, radius: 1.9, damage: 24, zoneDelay: 0.64, zoneRadius: 6.4, zoneDamage: 35, color: 0x32d8ff },
+    behavior: { laserMode: "burst", laserCooldownScale: 0.65, laserChargeScale: 0.78, laserDurationScale: 1.15, specialCooldownScale: 0.82, specialChainChance: 0.25 },
   },
 ];
 
@@ -1746,34 +1764,127 @@ export class Game {
     }
   }
 
+  getBossBehavior(profile = null, enemy = null) {
+    if (enemy?.bossCombatBehavior) return enemy.bossCombatBehavior;
+
+    const merged = {
+      ...DEFAULT_BOSS_BEHAVIOR,
+      ...(profile?.behavior || {}),
+    };
+
+    merged.laserUnlockHealthRatio = THREE.MathUtils.clamp(
+      Number.isFinite(merged.laserUnlockHealthRatio)
+        ? merged.laserUnlockHealthRatio
+        : 1.0,
+      0.05,
+      1.0,
+    );
+    merged.specialChainChance = THREE.MathUtils.clamp(
+      Number.isFinite(merged.specialChainChance)
+        ? merged.specialChainChance
+        : 0.0,
+      0,
+      0.9,
+    );
+
+    return merged;
+  }
+
   initBossLaserState(enemy, profile) {
+    const behavior = this.getBossBehavior(profile, enemy);
+    enemy.bossCombatBehavior = behavior;
+
     const cfg = {
       ...DEFAULT_BOSS_LASER,
       ...(profile?.laser || {}),
     };
     enemy.bossLaserState = {
-      phase: "cooldown",
+      phase: behavior.laserMode === "off" ? "disabled" : "cooldown",
       timer: 1.0 + Math.random() * 0.8,
       config: cfg,
       color: new THREE.Color(cfg.color || DEFAULT_BOSS_LASER.color),
       aimPoint: new THREE.Vector3(),
       eyeBuffer: [new THREE.Vector3(), new THREE.Vector3()],
+      mode: behavior.laserMode || "standard",
+      unlockHealthRatio: behavior.laserUnlockHealthRatio,
+      cooldownScale: Math.max(
+        0.25,
+        Number.isFinite(behavior.laserCooldownScale)
+          ? behavior.laserCooldownScale
+          : 1.0,
+      ),
+      chargeScale: Math.max(
+        0.25,
+        Number.isFinite(behavior.laserChargeScale)
+          ? behavior.laserChargeScale
+          : 1.0,
+      ),
+      durationScale: Math.max(
+        0.35,
+        Number.isFinite(behavior.laserDurationScale)
+          ? behavior.laserDurationScale
+          : 1.0,
+      ),
     };
   }
 
   initBossSpecialState(enemy, profile) {
+    const behavior = this.getBossBehavior(profile, enemy);
+    enemy.bossCombatBehavior = behavior;
+
     const cfg = {
       ...DEFAULT_BOSS_SPECIAL,
       ...(profile?.special || {}),
     };
+    const cooldownScale = Math.max(
+      0.25,
+      Number.isFinite(behavior.specialCooldownScale)
+        ? behavior.specialCooldownScale
+        : 1.0,
+    );
+    const windupScale = Math.max(
+      0.25,
+      Number.isFinite(behavior.specialWindupScale)
+        ? behavior.specialWindupScale
+        : 1.0,
+    );
+    const baseTimer =
+      cfg.cooldown * cooldownScale * THREE.MathUtils.lerp(0.66, 1.0, Math.random());
+    const openerTimer = Math.max(
+      0.34,
+      (cfg.windup || DEFAULT_BOSS_SPECIAL.windup) * windupScale + 0.18,
+    );
 
     enemy.bossSpecialState = {
       phase: "cooldown",
-      timer: cfg.cooldown * THREE.MathUtils.lerp(0.66, 1.0, Math.random()),
+      timer: behavior.openWithSpecial ? Math.min(baseTimer, openerTimer) : baseTimer,
       config: cfg,
       targetPoint: new THREE.Vector3(),
       color: new THREE.Color(cfg.color || DEFAULT_BOSS_SPECIAL.color),
+      cooldownScale,
+      windupScale,
+      chainChance: behavior.specialChainChance,
+      chainCooldownScale: Math.max(
+        0.25,
+        Number.isFinite(behavior.specialChainCooldownScale)
+          ? behavior.specialChainCooldownScale
+          : 0.65,
+      ),
     };
+  }
+
+  isBossLaserEnabled(enemy, state) {
+    if (!enemy?.isBoss || !state) return false;
+    if (state.mode === "off" || state.phase === "disabled") return false;
+
+    const unlock = Number.isFinite(state.unlockHealthRatio)
+      ? state.unlockHealthRatio
+      : 1.0;
+    if (unlock >= 0.999) return true;
+
+    const maxHealth = Math.max(1, enemy.maxHealth || 1);
+    const healthRatio = enemy.health / maxHealth;
+    return healthRatio <= unlock;
   }
 
   startWave(waveNum) {
@@ -2352,6 +2463,12 @@ export class Game {
     const cfg = state.config || DEFAULT_BOSS_LASER;
     const laserDamageScale = this.difficultyTuning?.bossLaserDamageScale || 1.0;
     const attackCooldownScale = this.difficultyTuning?.bossAttackCooldownScale || 1.0;
+    const chargeDuration = Math.max(0.22, cfg.charge * (state.chargeScale || 1.0));
+    const fireDuration = Math.max(0.45, cfg.duration * (state.durationScale || 1.0));
+    const combinedCooldownScale = Math.max(
+      0.28,
+      (state.cooldownScale || 1.0) * attackCooldownScale,
+    );
     const playerPoint = this.player.camera
       ? this.player.camera.position
       : this.player.body.position;
@@ -2359,12 +2476,20 @@ export class Game {
     state.timer -= dt;
     const distToPlayer = enemy.mesh.position.distanceTo(playerPoint);
 
+    if (!this.isBossLaserEnabled(enemy, state)) {
+      this.hideBossLaser(enemy);
+      this.updateBossEyeGlow(enemy, state, 0.06);
+      state.phase = "cooldown";
+      state.timer = Math.max(state.timer, 0.35);
+      return;
+    }
+
     if (state.phase === "cooldown") {
       this.hideBossLaser(enemy);
       this.updateBossEyeGlow(enemy, state, 0.08);
       if (state.timer <= 0 && distToPlayer <= cfg.range + 4) {
         state.phase = "charge";
-        state.timer = cfg.charge;
+        state.timer = chargeDuration;
         state.aimPoint.copy(playerPoint);
       }
       return;
@@ -2376,7 +2501,7 @@ export class Game {
 
     if (state.phase === "charge") {
       const chargeProgress = THREE.MathUtils.clamp(
-        1 - Math.max(0, state.timer) / Math.max(cfg.charge, 0.001),
+        1 - Math.max(0, state.timer) / Math.max(chargeDuration, 0.001),
         0,
         1,
       );
@@ -2391,7 +2516,7 @@ export class Game {
       );
       if (state.timer <= 0) {
         state.phase = "fire";
-        state.timer = cfg.duration;
+        state.timer = fireDuration;
       }
       return;
     }
@@ -2416,7 +2541,7 @@ export class Game {
         state.phase = "cooldown";
         state.timer =
           cfg.cooldown *
-          attackCooldownScale *
+          combinedCooldownScale *
           THREE.MathUtils.lerp(0.92, 1.08, Math.random());
         this.hideBossLaser(enemy);
         this.updateBossEyeGlow(enemy, state, 0.1);
@@ -2547,6 +2672,15 @@ export class Game {
     if (!enemy?.isBoss || !enemy.mesh || !enemy.bossSpecialState) return;
     const state = enemy.bossSpecialState;
     const cfg = state.config || DEFAULT_BOSS_SPECIAL;
+    const attackCooldownScale = this.difficultyTuning?.bossAttackCooldownScale || 1.0;
+    const cooldownScale = Math.max(
+      0.25,
+      (state.cooldownScale || 1.0) * attackCooldownScale,
+    );
+    const windupDuration = Math.max(
+      0.22,
+      (cfg.windup || DEFAULT_BOSS_SPECIAL.windup) * (state.windupScale || 1.0),
+    );
     const playerPoint = this.player?.body?.position;
     if (!playerPoint) return;
 
@@ -2556,7 +2690,7 @@ export class Game {
     if (state.phase === "cooldown") {
       if (state.timer <= 0 && distToPlayer <= (cfg.triggerRange || 28)) {
         state.phase = "windup";
-        state.timer = Math.max(0.22, cfg.windup || DEFAULT_BOSS_SPECIAL.windup);
+        state.timer = windupDuration;
         state.targetPoint.copy(playerPoint);
       }
       return;
@@ -2565,7 +2699,7 @@ export class Game {
     if (state.phase === "windup") {
       state.targetPoint.lerp(playerPoint, Math.min(1, dt * 2.6));
       const charge = THREE.MathUtils.clamp(
-        1 - Math.max(0, state.timer) / Math.max(cfg.windup || 0.7, 0.001),
+        1 - Math.max(0, state.timer) / Math.max(windupDuration, 0.001),
         0,
         1,
       );
@@ -2593,11 +2727,17 @@ export class Game {
         }
 
         state.phase = "cooldown";
-        const cooldownScale = this.difficultyTuning?.bossAttackCooldownScale || 1.0;
-        state.timer =
+        const baseCooldown =
           Math.max(0.7, cfg.cooldown || DEFAULT_BOSS_SPECIAL.cooldown) *
-          cooldownScale *
-          THREE.MathUtils.lerp(0.92, 1.08, Math.random());
+          cooldownScale;
+        const chainChance = THREE.MathUtils.clamp(state.chainChance || 0, 0, 0.9);
+        if (Math.random() < chainChance) {
+          state.timer =
+            Math.max(0.34, baseCooldown * (state.chainCooldownScale || 0.65)) *
+            THREE.MathUtils.lerp(0.94, 1.08, Math.random());
+        } else {
+          state.timer = baseCooldown * THREE.MathUtils.lerp(0.92, 1.08, Math.random());
+        }
       }
     }
   }
