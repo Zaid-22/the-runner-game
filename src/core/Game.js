@@ -629,6 +629,15 @@ export class Game {
       this.scene.add(mesh);
       this.clouds.push(mesh);
     }
+
+    // Add one visible sky cloud above the arena.
+    const skyCloud = new THREE.Mesh(cloudGeo, cloudMat);
+    skyCloud.scale.set(1.8, 1.2, 1);
+    skyCloud.position.set(-60, 42, -30);
+    skyCloud.rotation.x = -Math.PI / 2;
+    skyCloud.userData = { speed: 0.8, noBulletBlock: true };
+    this.scene.add(skyCloud);
+    this.clouds.push(skyCloud);
   }
 
   initLightPool() {
