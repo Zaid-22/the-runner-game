@@ -27,8 +27,13 @@ function httpGet(url) {
   });
 }
 
-async function waitForPreview(maxAttempts = 40) {
+async function waitForPreview(previewProcess, maxAttempts = 40) {
   for (let i = 0; i < maxAttempts; i++) {
+    if (previewProcess.exitCode !== null) {
+      throw new Error(
+        `Preview process exited early with code ${previewProcess.exitCode}`,
+      );
+    }
     try {
       const result = await httpGet(PREVIEW_URL);
       if (result.statusCode === 200) {
@@ -44,12 +49,24 @@ async function waitForPreview(maxAttempts = 40) {
 }
 
 async function stopProcess(child) {
-  if (!child || child.killed) return;
+  if (!child || child.exitCode !== null) return;
+
+  const exited = new Promise((resolve) => {
+    child.once("exit", () => resolve(true));
+  });
 
   child.kill("SIGTERM");
-  await delay(1200);
-  if (!child.killed) {
+  const graceful = await Promise.race([
+    exited,
+    delay(1200).then(() => false),
+  ]);
+
+  if (!graceful && child.exitCode === null) {
     child.kill("SIGKILL");
+    await Promise.race([
+      exited,
+      delay(800),
+    ]);
   }
 }
 
@@ -70,15 +87,16 @@ async function main() {
   );
 
   let stderrOutput = "";
+  let stdoutOutput = "";
   preview.stderr.on("data", (chunk) => {
     stderrOutput += chunk.toString();
   });
-  preview.stdout.on("data", () => {
-    // Keep stdout stream drained to avoid process blocking.
+  preview.stdout.on("data", (chunk) => {
+    stdoutOutput += chunk.toString();
   });
 
   try {
-    const { statusCode, body } = await waitForPreview();
+    const { statusCode, body } = await waitForPreview(preview);
 
     if (statusCode !== 200) {
       throw new Error(`Preview returned unexpected status code: ${statusCode}`);
@@ -98,12 +116,15 @@ async function main() {
     }
 
     console.log("Smoke preview check passed.");
+  } catch (error) {
+    const details = [
+      error instanceof Error ? error.message : String(error),
+      stderrOutput.trim() ? `stderr:\n${stderrOutput.trim()}` : "",
+      stdoutOutput.trim() ? `stdout:\n${stdoutOutput.trim()}` : "",
+    ].filter(Boolean).join("\n\n");
+    throw new Error(details);
   } finally {
     await stopProcess(preview);
-  }
-
-  if (stderrOutput.includes("error when starting preview server")) {
-    throw new Error(`Preview server error:\n${stderrOutput}`);
   }
 }
 

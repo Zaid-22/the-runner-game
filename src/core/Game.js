@@ -184,14 +184,12 @@ export class Game {
     this.activeIntervals = [];
 
     this.gameState = "MENU"; // Start in MENU
-    this._errorLogged = false;
     this.restartInProgress = false;
     this.lastRestartAt = 0;
 
     // Camera Control State
     this.menuCameraAngle = 0;
     this.cameraTransition = {
-      active: false,
       startTime: 0,
       duration: 2.0,
       startPos: new THREE.Vector3(),
@@ -221,7 +219,6 @@ export class Game {
 
     // Shake
     this.shakeIntensity = 0;
-    this.baseCameraY = 1.6;
     this.playerDamageCooldown = 0;
     this.waveTransitionDuration = 1.2;
 
@@ -269,6 +266,7 @@ export class Game {
     this.environmentTime = 0;
     this.spawnRate = 0.5; // Seconds between spawns
     this.lastSpawnTime = 0; // Needed for wave spawning rate limiting
+    this.nextPowerUpSpawnTime = 0;
 
     // Initialize renderer first so we can pass its DOM element to Player
     this.renderer.setSize(window.innerWidth, window.innerHeight);
@@ -768,16 +766,17 @@ export class Game {
           this.lastSpawnTime = this.gameTime;
         }
 
-        // Powerups - BALANCED: Less frequent, not guaranteed
-        if (!this.lastPowerUpTime) this.lastPowerUpTime = 0;
-        const powerUpInterval =
-          (14 + Math.random() * 8) * this.difficultyTuning.powerUpIntervalScale;
-        if (this.gameTime - this.lastPowerUpTime > powerUpInterval) {
-          // Only 50% chance to spawn (making them rarer)
-          if (Math.random() < 0.5) {
-            this.spawnPowerUp();
-          }
-          this.lastPowerUpTime = this.gameTime;
+        // Power-up scheduling: use a fixed next-spawn timestamp to avoid
+        // frame-by-frame random interval jitter.
+        if (this.nextPowerUpSpawnTime <= 0) {
+          this.scheduleNextPowerUpSpawn(this.gameTime);
+        }
+        if (this.gameTime >= this.nextPowerUpSpawnTime) {
+          let spawnChance = 0.52;
+          if (this.selectedDifficulty === "easy") spawnChance = 0.62;
+          if (this.selectedDifficulty === "hard") spawnChance = 0.42;
+          if (Math.random() < spawnChance) this.spawnPowerUp();
+          this.scheduleNextPowerUpSpawn(this.gameTime);
         }
 
         // Wave Event
@@ -926,7 +925,9 @@ export class Game {
           );
           const contactRange = Math.max(1.5, (enemy.config?.size || 0.5) * 1.1);
           if (dist < contactRange && !enemy.isDead) {
-            const contactDamage = (enemy.config?.damage || 18) * 0.08;
+            const contactDamageFactor = enemy.isBoss ? 0.06 : 0.074;
+            const contactDamage =
+              (enemy.config?.damage || 18) * contactDamageFactor;
             this.damagePlayer(contactDamage);
 
             if (this.shakeIntensity < 0.1) this.shake(0.1);
@@ -1058,14 +1059,14 @@ export class Game {
       hard: {
         playerSpeedScale: 1.05,
         playerDamageOutputScale: 0.92,
-        playerDamageTakenScale: 1.24,
+        playerDamageTakenScale: 1.18,
         enemySpeedScale: 1.12,
-        enemyHealthScale: 1.22,
+        enemyHealthScale: 1.16,
         spawnRateScale: 0.82,
         powerUpIntervalScale: 1.2,
         maxActiveEnemies: 42,
-        bossLaserDamageScale: 1.24,
-        bossSpecialDamageScale: 1.22,
+        bossLaserDamageScale: 1.16,
+        bossSpecialDamageScale: 1.15,
         bossAttackCooldownScale: 0.88,
       },
     };
@@ -1105,7 +1106,6 @@ export class Game {
     }
 
     // Setup Transition Data
-    this.cameraTransition.active = true;
     this.cameraTransition.startTime = this.clock.getElapsedTime();
     this.cameraTransition.duration = 2.0; // 2 seconds
     this.cameraTransition.startPos.copy(this.camera.position);
@@ -1131,7 +1131,7 @@ export class Game {
     this.player.refillAllAmmo();
     this.player.setSpeedMultiplier(this.playerSpeedMultiplier);
     this.player.allowUnlockedInput = true;
-    this.lastPowerUpTime = 0;
+    this.nextPowerUpSpawnTime = 0;
 
     // Explicitly define the target rotation (Looking forward, -Z)
     // Identity quaternion is looking at -Z in Three.js default if camera geometry is standard
@@ -1245,7 +1245,7 @@ export class Game {
     this.waveState = "STARTING";
     this.gameTime = 0;
     this.lastSpawnTime = 0;
-    this.lastPowerUpTime = 0;
+    this.nextPowerUpSpawnTime = 0;
     if (this.input?.keys) this.input.keys = {};
     this.resetCombatHudFeedback();
     this.uiCache.score = -1;
@@ -1799,16 +1799,16 @@ export class Game {
 
     const perWaveEnemyCount = {
       1: 14,
-      2: 18,
-      3: 22,
-      4: 26,
-      5: 28,
-      6: 32,
+      2: 17,
+      3: 20,
+      4: 24,
+      5: 27,
+      6: 30,
     };
     this.enemiesPerWave = perWaveEnemyCount[clampedWave] ||
       perWaveEnemyCount[this.totalWaves] ||
-      32;
-    this.spawnRate = Math.max(0.46, 1.04 - clampedWave * 0.055);
+      30;
+    this.spawnRate = Math.max(0.5, 1.05 - clampedWave * 0.052);
     this.spawnRate *= this.difficultyTuning.spawnRateScale;
 
     if (this.level && this.level.setArenaPhase) {
@@ -2144,6 +2144,8 @@ export class Game {
         // Fallback: Create one right here if missing?
         return;
       }
+      // Fast hit lookup for projectile raycast traversal.
+      enemy.mesh.userData.enemyRef = enemy;
 
       // Add Boss Metadata specific to Game tracking
       if (isBoss) {
@@ -2159,8 +2161,8 @@ export class Game {
           0,
           1,
         );
-        // Reduced boss HP ramp to keep medium/hard intense but not overlong.
-        const waveBossHealthRamp = THREE.MathUtils.lerp(1.08, 1.62, waveProgress);
+        // Keep late waves challenging without making boss fights overlong.
+        const waveBossHealthRamp = THREE.MathUtils.lerp(1.05, 1.5, waveProgress);
         const healthMult = waveBossHealthRamp * (bossProfile.healthMultiplier || 1.0);
         enemy.health *= healthMult;
         enemy.maxHealth = enemy.health;
@@ -2774,8 +2776,14 @@ export class Game {
   findEnemyFromHitObject(object) {
     let probe = object;
     while (probe) {
+      if (probe.userData?.enemyRef) return probe.userData.enemyRef;
+
       const enemy = this.enemies.find((candidate) => candidate?.mesh === probe);
-      if (enemy) return enemy;
+      if (enemy) {
+        probe.userData = probe.userData || {};
+        probe.userData.enemyRef = enemy;
+        return enemy;
+      }
       probe = probe.parent;
     }
     return null;
@@ -3021,6 +3029,14 @@ export class Game {
     if (roll < 0.65) return "ammo";
     if (roll < 0.85) return "speed";
     return "damage";
+  }
+
+  scheduleNextPowerUpSpawn(referenceTime = this.gameTime) {
+    const baseInterval = 15 + Math.random() * 7;
+    const scale = this.difficultyTuning?.powerUpIntervalScale || 1;
+    const nextIn = Math.max(6, baseInterval * scale);
+    const from = Number.isFinite(referenceTime) ? referenceTime : this.gameTime;
+    this.nextPowerUpSpawnTime = Math.max(0, from) + nextIn;
   }
 
   spawnPowerUp() {
