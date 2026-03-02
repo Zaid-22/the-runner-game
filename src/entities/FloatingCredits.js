@@ -34,11 +34,6 @@ export class FloatingCredits {
 
     this.logoMesh = new THREE.Mesh(geometry, material);
     this.group.add(this.logoMesh);
-
-    // Add a subtle point light - REMOVED for performance
-    // const light = new THREE.PointLight(0x00bfff, 2, 100);
-    // light.position.set(0, 0, 5);
-    // this.group.add(light);
   }
 
   initCodeSnippets() {
@@ -56,20 +51,6 @@ export class FloatingCredits {
       "import { THREE } from 'three';",
     ];
 
-    const fontCanvas = document.createElement("canvas");
-    const ctx = fontCanvas.getContext("2d");
-    fontCanvas.width = 1024;
-    fontCanvas.height = 1024;
-    ctx.font = "bold 40px monospace";
-    ctx.fillStyle = "#00ff00";
-    ctx.textAlign = "center";
-
-    // Create individual meshes for random lines
-    // We can't easily atlas this dynamically without complex UVs,
-    // so let's just create individual text textures for simplicity
-    // or draw them all on one big transparent cylinder.
-
-    // Let's create floating text sprites
     codeLines.forEach((line, i) => {
       const textCanvas = document.createElement("canvas");
       textCanvas.width = 512;
@@ -119,9 +100,6 @@ export class FloatingCredits {
 
     // Bob the entire group slightly
     this.group.position.y = 40 + Math.sin(this.time * 0.5) * 2;
-
-    // Rotate the group slowly
-    // this.group.rotation.y = Math.sin(this.time * 0.2) * 0.1;
 
     // Pulse the Logo opacity or scale
     const pulse = 1 + Math.sin(this.time * 2) * 0.02;

@@ -168,8 +168,6 @@ export class Game {
     solver.tolerance = 0.1;
     this.world.solver = new SplitSolver(solver);
 
-    // REMOVED groundBody call here because Level.js handles ground physics now.
-    // this.world.addBody(this.groundBody); // Deleted to prevent undefined error.
     this.audio = new SoundManager();
     this.input = new Input(); // Initialize Input system
     this.clock = new THREE.Clock();
